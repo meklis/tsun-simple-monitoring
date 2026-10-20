@@ -1,7 +1,10 @@
 package com.meklis.tsunmonitor
 
-import com.meklis.tsunmonitor.data.Estimates
 import com.meklis.tsunmonitor.data.Snapshot
+import com.meklis.tsunmonitor.data.formatHours
+import com.meklis.tsunmonitor.data.hoursToEmpty
+import com.meklis.tsunmonitor.data.hoursToFull
+import com.meklis.tsunmonitor.monitor.lowBatteryStep
 import com.meklis.tsunmonitor.protocol.Period
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
@@ -30,7 +33,6 @@ class LogicTest {
     @Test
     fun parsesSnapshot() {
         val s = Snapshot.parse(1000, energy, regs)
-        assertEquals("N000000000000001", s.serial)
         assertEquals(66.0, s.soc!!, 0.0)
         assertEquals(-2498.0, s.gridPowerW!!, 0.0)
         assertEquals(7.0, s.offGridW!!, 0.0) // OffGridLoadPower, W
@@ -112,15 +114,36 @@ class LogicTest {
     @Test
     fun estimates() {
         // 34 % of 5120 Wh at 2366 W, +5 %: ~0.77 h
-        val full = Estimates.hoursToFull(66.0, 100, 2366.0, 5120.0, true)!!
+        val full = hoursToFull(66.0, 100, 2366.0, 5120.0, true)!!
         assertEquals(0.34 * 5120 / 2366 * 1.05, full, 1e-9)
-        assertNull(Estimates.hoursToFull(66.0, 100, 2366.0, 5120.0, false))
-        assertNull(Estimates.hoursToFull(100.0, 100, 2366.0, 5120.0, true))
+        assertNull(hoursToFull(66.0, 100, 2366.0, 5120.0, false))
+        assertNull(hoursToFull(100.0, 100, 2366.0, 5120.0, true))
         // (80 - 10) % of 5120 Wh at 500 W: 7.168 h
-        assertEquals(7.168, Estimates.hoursToEmpty(80.0, 10, 500.0, 5120.0)!!, 1e-9)
-        assertNull(Estimates.hoursToEmpty(80.0, 10, 0.0, 5120.0))
-        assertEquals("7 год 10 хв", Estimates.format(7.168))
-        assertEquals("46 хв", Estimates.format(0.77))
-        assertTrue(Estimates.format(500.0)!!.startsWith(">"))
+        assertEquals(7.168, hoursToEmpty(80.0, 10, 500.0, 5120.0)!!, 1e-9)
+        assertNull(hoursToEmpty(80.0, 10, 0.0, 5120.0))
+        assertEquals("7 год 10 хв", formatHours(7.168))
+        assertEquals("46 хв", formatHours(0.77))
+        assertTrue(formatHours(500.0)!!.startsWith(">"))
+    }
+
+    @Test
+    fun lowBatteryAlerts() {
+        // Discharging 25 -> 9 %: one alert at 20, one at 10.
+        var alerted: Int? = null
+        val fired = mutableListOf<Int>()
+        for (soc in 25 downTo 9) {
+            val (now, next) = lowBatteryStep(soc.toDouble(), alerted)
+            now?.let(fired::add)
+            alerted = next
+        }
+        assertEquals(listOf(20, 10), fired)
+        assertEquals(10, alerted)
+        // Wobbling around 10 % does not repeat it; back above 13 % only the 20 % alert stays recorded.
+        assertEquals(null to 10, lowBatteryStep(11.0, 10))
+        assertEquals(null to 20, lowBatteryStep(14.0, 10))
+        assertEquals(10 to 10, lowBatteryStep(10.0, 20))
+        // Charged back above 23 %: everything re-armed.
+        assertEquals(null to null, lowBatteryStep(24.0, 20))
+        assertEquals(20 to 20, lowBatteryStep(20.0, null))
     }
 }

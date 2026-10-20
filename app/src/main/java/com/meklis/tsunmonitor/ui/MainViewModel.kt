@@ -1,6 +1,5 @@
 package com.meklis.tsunmonitor.ui
 
-import com.meklis.tsunmonitor.protocol.Period
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -12,6 +11,7 @@ import com.meklis.tsunmonitor.discovery.Discovery
 import com.meklis.tsunmonitor.discovery.Found
 import com.meklis.tsunmonitor.monitor.Monitor
 import com.meklis.tsunmonitor.protocol.EmsSession
+import com.meklis.tsunmonitor.protocol.Period
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -21,6 +21,10 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import java.net.ConnectException
+import java.net.NoRouteToHostException
+import java.net.SocketTimeoutException
+import java.net.UnknownHostException
 
 enum class Screen { LIST, MAIN }
 enum class Tab { STATUS, INFO, SETTINGS }
@@ -122,12 +126,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             fetchLock.withLock {
                 _state.update { it.copy(loading = true, refreshSource = source, error = if (manual) null else it.error) }
                 try {
-                    val snap = InverterApi.readWithRetry(inv.host, inv.port) { n -> _state.update { it.copy(attempt = n) } }
-                    store.saveSnapshot(inv.id, snap)
-                    notify(inv, snap)
-                    if (_state.value.current?.id == inv.id) {
-                        _state.update { it.copy(snapshot = snap, error = null, nowMs = System.currentTimeMillis()) }
-                    }
+                    read(inv, Period.REGISTERS) { n -> _state.update { it.copy(attempt = n) } }
                 } catch (e: Exception) {
                     if (_state.value.current?.id == inv.id) {
                         _state.update { it.copy(error = "Не вдалося отримати дані після ${InverterApi.ATTEMPTS} спроб: ${describe(e)}") }
@@ -181,12 +180,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             fetchLock.withLock {
                 _state.update { it.copy(infoLoading = true, infoError = null) }
                 try {
-                    val snap = InverterApi.readWithRetry(inv.host, inv.port, registers = InverterApi.ALL_REGISTERS)
-                    store.saveSnapshot(inv.id, snap)
-                    notify(inv, snap)
-                    if (_state.value.current?.id == inv.id) {
-                        _state.update { it.copy(info = snap, snapshot = snap, error = null, nowMs = System.currentTimeMillis()) }
-                    }
+                    val snap = read(inv, InverterApi.ALL_REGISTERS)
+                    if (_state.value.current?.id == inv.id) _state.update { it.copy(info = snap) }
                 } catch (e: Exception) {
                     _state.update { it.copy(infoError = "Не вдалося отримати дані: ${describe(e)}") }
                 } finally {
@@ -227,7 +222,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         _state.update { it.copy(connecting = h, addError = null) }
         viewModelScope.launch {
             try {
-                val sn = InverterApi.probe(h, port, timeoutMs = InverterApi.TIMEOUT_MS)?.takeIf { it.isNotEmpty() } ?: knownSerial
+                val sn = InverterApi.probe(h, port).ifEmpty { null } ?: knownSerial
                 val id = sn ?: "$h:$port"
                 val existing = store.get(id)
                 val inv = existing?.copy(host = h, port = port) ?: Inverter(id = id, host = h, port = port, name = sn?.let { "TSUN $it" } ?: h)
@@ -263,9 +258,18 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         _state.update { it.copy(alwaysShowStatus = enabled) }
     }
 
-    /** The app's own polls keep notifications current too, so the pinned status follows the screen. */
-    private fun notify(inv: Inverter, snap: Snapshot) {
+    /**
+     * Reads with retries, caches the result and shows it if [inv] is still open. The app's own
+     * polls feed the notifications too, so the pinned status follows the screen.
+     */
+    private suspend fun read(inv: Inverter, registers: List<Int>, onAttempt: (Int) -> Unit = {}): Snapshot {
+        val snap = InverterApi.readWithRetry(inv.host, inv.port, registers = registers, onAttempt = onAttempt)
+        store.saveSnapshot(inv.id, snap)
         if (store.monitorEnabled) Monitor.process(getApplication(), store, inv, snap)
+        if (_state.value.current?.id == inv.id) {
+            _state.update { it.copy(snapshot = snap, error = null, nowMs = System.currentTimeMillis()) }
+        }
+        return snap
     }
 
     fun saveCapacity(capacityWh: Double) {
@@ -275,33 +279,24 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         _state.update { it.copy(current = updated, inverters = store.all()) }
     }
 
-    fun writeSettings(chargePowerW: Int?, maxSoc: Int?, minSoc: Int = Period.MIN_SOC) {
-        val inv = _state.value.current ?: return
-        _state.update { it.copy(writing = true, writeMessage = null) }
-        viewModelScope.launch {
-            val msg = fetchLock.withLock {
-                try {
-                    val previous = InverterApi.writeActivePeriod(inv.host, inv.port, chargePowerW, maxSoc, minSoc)
-                    "Збережено. Було: $previous"
-                } catch (e: Exception) {
-                    "Помилка запису: ${if (e is IllegalArgumentException || e is IllegalStateException) e.message else describe(e)}"
-                }
-            }
-            _state.update { it.copy(writing = false, writeMessage = msg) }
-            if (_state.value.tab == Tab.INFO) fetchInfo() else refresh()
-        }
+    fun writeSettings(chargePowerW: Int?, maxSoc: Int?, minSoc: Int = Period.MIN_SOC) = write("Помилка запису") { inv ->
+        "Збережено. Було: " + InverterApi.writeActivePeriod(inv.host, inv.port, chargePowerW, maxSoc, minSoc)
     }
 
-    fun writeRegister(register: Int, value: String) {
+    fun writeRegister(register: Int, value: String) = write("Помилка запису $register") { inv ->
+        "Регістр $register збережено. Було: " + InverterApi.writeRegister(inv.host, inv.port, register, value)
+    }
+
+    /** Runs one device write, shows its outcome, then re-reads what the current tab shows. */
+    private fun write(errorPrefix: String, block: suspend (Inverter) -> String) {
         val inv = _state.value.current ?: return
         _state.update { it.copy(writing = true, writeMessage = null) }
         viewModelScope.launch {
             val msg = fetchLock.withLock {
                 try {
-                    val previous = InverterApi.writeRegister(inv.host, inv.port, register, value)
-                    "Регістр $register збережено. Було: $previous"
+                    block(inv)
                 } catch (e: Exception) {
-                    "Помилка запису $register: ${if (e is IllegalStateException) e.message else describe(e)}"
+                    "$errorPrefix: ${if (e is IllegalArgumentException || e is IllegalStateException) e.message else describe(e)}"
                 }
             }
             _state.update { it.copy(writing = false, writeMessage = msg) }
@@ -313,10 +308,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         const val POLL_INTERVAL_MS = 60_000L
 
         fun describe(e: Throwable): String = when {
-            e is java.net.SocketTimeoutException -> "інвертор не відповів за 10 с"
-            e is java.net.ConnectException || e.message?.contains("ECONNREFUSED") == true -> "з'єднання відхилено"
-            e is java.net.NoRouteToHostException || e.message?.contains("EHOSTUNREACH") == true -> "адреса недоступна"
-            e is java.net.UnknownHostException -> "невідома адреса"
+            e is SocketTimeoutException -> "інвертор не відповів за 10 с"
+            e is ConnectException || e.message?.contains("ECONNREFUSED") == true -> "з'єднання відхилено"
+            e is NoRouteToHostException || e.message?.contains("EHOSTUNREACH") == true -> "адреса недоступна"
+            e is UnknownHostException -> "невідома адреса"
             else -> e.message ?: e.javaClass.simpleName
         }
     }

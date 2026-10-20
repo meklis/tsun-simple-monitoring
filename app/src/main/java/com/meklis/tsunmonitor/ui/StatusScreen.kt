@@ -1,6 +1,5 @@
 package com.meklis.tsunmonitor.ui
 
-import com.meklis.tsunmonitor.protocol.Period
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -11,17 +10,14 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.material.icons.Icons
-import androidx.compose.material3.Icon
-import androidx.compose.ui.graphics.painter.Painter
-import androidx.compose.ui.res.painterResource
-import com.meklis.tsunmonitor.R
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -29,12 +25,19 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.painter.Painter
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.meklis.tsunmonitor.data.Estimates
+import com.meklis.tsunmonitor.R
+import com.meklis.tsunmonitor.data.formatHours
+import com.meklis.tsunmonitor.data.hoursToEmpty
+import com.meklis.tsunmonitor.data.hoursToFull
+import com.meklis.tsunmonitor.protocol.Period
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlin.math.abs
 import kotlin.math.roundToInt
 
 @Composable
@@ -80,13 +83,11 @@ fun StatusScreen(state: UiState, vm: MainViewModel, modifier: Modifier = Modifie
         val grid = s.gridPresent
         val gridW = s.gridPowerW ?: 0.0
         val chargeW = s.batteryChargeW?.takeIf { it > 0 } ?: s.acChargeW
-        // Time to empty uses the whole home consumption (off-grid + house load).
-        val dischargeW = s.homeW
-        // Time to full: only with grid and below max SOC. Time to empty: only without grid.
+        // Time to full only with grid and below max SOC; time to empty only without grid.
         val showToFull = grid == true && period != null && soc != null && soc < period.maxSoc
         val showToEmpty = grid == false && period != null
-        val toFull = period?.let { Estimates.hoursToFull(soc, it.maxSoc, chargeW, inv.capacityWh, grid) }
-        val toEmpty = period?.let { Estimates.hoursToEmpty(soc, Period.MIN_SOC, dischargeW, inv.capacityWh) }
+        val toFull = period?.let { hoursToFull(soc, it.maxSoc, chargeW, inv.capacityWh, grid) }
+        val toEmpty = hoursToEmpty(soc, Period.MIN_SOC, s.homeW, inv.capacityWh)
 
         Card(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
@@ -108,12 +109,11 @@ fun StatusScreen(state: UiState, vm: MainViewModel, modifier: Modifier = Modifie
                 InfoRow(
                     painterResource(R.drawable.ic_plug),
                     if (gridW > 0) "Віддача в мережу" else "Потужність з мережі",
-                    "${kotlin.math.abs(gridW).roundToInt()} Вт",
+                    "${abs(gridW).roundToInt()} Вт",
                 )
                 HorizontalDivider()
                 InfoRow(
                     painterResource(R.drawable.ic_outlet), "Вихід",
-                    // Whole inverter output: OffGridLoadPower covers only socket 2.
                     "${(s.homeW ?: 0.0).roundToInt()} Вт",
                 )
                 Text(
@@ -134,7 +134,7 @@ fun StatusScreen(state: UiState, vm: MainViewModel, modifier: Modifier = Modifie
                     InfoRow(
                         painterResource(R.drawable.ic_battery_charging),
                         "До заряду (${period!!.maxSoc} %)",
-                        Estimates.format(toFull) ?: "—",
+                        formatHours(toFull) ?: "—",
                     )
                 }
                 if (showToEmpty) {
@@ -142,7 +142,7 @@ fun StatusScreen(state: UiState, vm: MainViewModel, modifier: Modifier = Modifie
                     InfoRow(
                         painterResource(R.drawable.ic_hourglass),
                         "До розряду (${Period.MIN_SOC} %)",
-                        Estimates.format(toEmpty) ?: "—",
+                        formatHours(toEmpty) ?: "—",
                     )
                 }
             }

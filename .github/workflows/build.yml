@@ -1,0 +1,63 @@
+name: Build APK
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Each published build gets a higher versionCode, so it installs over the previous one;
+      # the offset keeps it above the locally built 1.1 (versionCode 3).
+      - name: Version code
+        run: echo "VERSION_CODE=$((100 + GITHUB_RUN_NUMBER))" >> "$GITHUB_ENV"
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      # Without these secrets the release APK is signed with a throwaway debug key and
+      # will not install over builds signed with the real key.
+      - name: Restore release key
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          if [ -z "$KEYSTORE_BASE64" ]; then
+            echo "::warning::KEYSTORE_BASE64 is not set: the release APK is signed with a debug key"
+            exit 0
+          fi
+          mkdir -p keystore
+          echo "$KEYSTORE_BASE64" | base64 -d > keystore/release.jks
+          {
+            echo "storeFile=keystore/release.jks"
+            echo "storePassword=$KEYSTORE_PASSWORD"
+            echo "keyAlias=$KEY_ALIAS"
+            echo "keyPassword=$KEY_PASSWORD"
+          } > keystore/keystore.properties
+
+      - name: Test and build
+        run: ./gradlew --no-daemon testDebugUnitTest assembleDebug assembleRelease
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tsun-monitor-apk-${{ github.run_number }}
+          path: app/build/outputs/apk/**/*.apk
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: test-reports
+          path: app/build/reports/tests/

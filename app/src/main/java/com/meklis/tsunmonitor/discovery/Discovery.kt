@@ -6,6 +6,7 @@ import android.net.nsd.NsdManager
 import android.net.nsd.NsdServiceInfo
 import android.net.wifi.WifiManager
 import android.util.Log
+import com.meklis.tsunmonitor.data.InverterApi
 import com.meklis.tsunmonitor.protocol.EmsSession
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -93,16 +94,13 @@ class Discovery(private val context: Context) {
             })
         }
 
-    private suspend fun subnetScan(onFound: suspend (Found) -> Unit) {
-        val (own, prefix) = localIpv4() ?: return
+    /** Probes every address of the phone's own subnet, [PARALLEL] at a time. */
+    private suspend fun subnetScan(onFound: suspend (Found) -> Unit) = withContext(Dispatchers.IO) {
+        val (own, prefix) = localIpv4() ?: return@withContext
         Log.d(TAG, "subnet scan from $own/$prefix")
-        scanHosts(Subnet.ownHosts(own, prefix) - own, onFound)
-    }
-
-    private suspend fun scanHosts(hosts: List<String>, onFound: suspend (Found) -> Unit) = withContext(Dispatchers.IO) {
         val gate = Semaphore(PARALLEL)
         coroutineScope {
-            hosts.map { host ->
+            (ownSubnetHosts(own, prefix) - own).map { host ->
                 async {
                     gate.withPermit {
                         probe(host, EmsSession.DEFAULT_PORT)?.let { sn ->
@@ -125,17 +123,10 @@ class Discovery(private val context: Context) {
                 return EmsSession(host, port, connectTimeoutMs = TIMEOUT_MS, readTimeoutMs = TIMEOUT_MS).use { s ->
                     s.energyParameter().optJSONArray("Storage_list")?.optJSONObject(0)?.optString("StorageSN") ?: ""
                 }
-            } catch (e: java.net.SocketTimeoutException) {
-                if (e.message?.contains("connect", ignoreCase = true) == true) return null
-                Log.d(TAG, "$host accepted but no answer (attempt ${attempt + 1})")
-            } catch (e: java.net.ConnectException) {
-                return null
-            } catch (e: java.net.NoRouteToHostException) {
-                return null
-            } catch (e: IOException) {
-                Log.d(TAG, "$host: ${e.message}")
             } catch (e: Exception) {
-                return null // not an EMS device
+                // Nothing at the address, or something that is not an EMS device.
+                if (InverterApi.isUnreachable(e) || e !is IOException) return null
+                Log.d(TAG, "$host: ${e.message} (attempt ${attempt + 1})")
             }
             delay(1_500)
         }
@@ -157,4 +148,23 @@ class Discovery(private val context: Context) {
         const val PARALLEL = 40
         const val TIMEOUT_MS = 3_000
     }
+}
+
+/** Larger networks are not scanned whole: a /24 around the own address is used instead. */
+private const val MIN_PREFIX = 22
+
+private fun ipToInt(ip: String): Int? {
+    val p = ip.trim().split(".")
+    if (p.size != 4) return null
+    return p.fold(0) { acc, s -> (acc shl 8) or (s.toIntOrNull()?.takeIf { it in 0..255 } ?: return null) }
+}
+
+private fun intToIp(v: Int) = "${v ushr 24 and 255}.${v ushr 16 and 255}.${v ushr 8 and 255}.${v and 255}"
+
+/** Host addresses of [ip]/[prefix] (network and broadcast excluded); too large networks fall back to a /24. */
+fun ownSubnetHosts(ip: String, prefix: Int): List<String> {
+    val addr = ipToInt(ip) ?: return emptyList()
+    val bits = if (prefix in MIN_PREFIX..30) prefix else 24
+    val network = addr and (-1 shl (32 - bits))
+    return (1 until (1 shl (32 - bits)) - 1).map { intToIp(network + it) }
 }

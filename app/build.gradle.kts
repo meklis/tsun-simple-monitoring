@@ -6,6 +6,14 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+val appVersionName = "1.1"
+// CI passes its run number so every published build installs over the previous one.
+val appVersionCode = System.getenv("VERSION_CODE")?.toIntOrNull() ?: 3
+
+base {
+    archivesName = "tsun-monitor-$appVersionName"
+}
+
 android {
     namespace = "com.meklis.tsunmonitor"
     compileSdk = 35
@@ -14,11 +22,12 @@ android {
         applicationId = "com.meklis.tsunmonitor"
         minSdk = 26
         targetSdk = 35
-        versionCode = 2
-        versionName = "1.0"
+        versionCode = appVersionCode
+        versionName = appVersionName
     }
 
-    // Release key lives outside git (keystore/); every future update must be signed with it.
+    // The release key lives outside git (keystore/, restored from secrets on CI);
+    // every update must be signed with it to install over the previous version.
     val keystoreProps = rootProject.file("keystore/keystore.properties")
     signingConfigs {
         if (keystoreProps.exists()) {

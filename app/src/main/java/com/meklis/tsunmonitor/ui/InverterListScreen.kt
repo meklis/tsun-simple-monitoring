@@ -2,6 +2,7 @@ package com.meklis.tsunmonitor.ui
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -31,6 +32,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import com.meklis.tsunmonitor.discovery.Found
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -39,14 +41,14 @@ import java.util.Locale
 fun InverterListScreen(state: UiState, vm: MainViewModel, modifier: Modifier = Modifier) {
     var ip by rememberSaveable { mutableStateOf("") }
     val saved = state.inverters
-    fun savedFor(f: com.meklis.tsunmonitor.discovery.Found) =
+    fun savedFor(f: Found) =
         saved.firstOrNull { (f.serial != null && it.id == f.serial) || (it.host == f.host && it.port == f.port) }
     val found = state.discovered
     val fmt = SimpleDateFormat("dd.MM HH:mm", Locale.getDefault())
 
     LazyColumn(
         modifier.fillMaxSize(),
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
+        contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         item {

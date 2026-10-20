@@ -66,12 +66,12 @@ class InverterStore(context: Context) {
         get() = prefs.getString(KEY_LAST, null)
         set(value) = prefs.edit().putString(KEY_LAST, value).apply()
 
-    /** Background monitoring service switched on by the user. */
+    /** Background monitoring switched on by the user. */
     var monitorEnabled: Boolean
         get() = prefs.getBoolean(KEY_MONITOR, false)
         set(value) = prefs.edit().putBoolean(KEY_MONITOR, value).apply()
 
-    /** Status notification stays pinned and always shown (instead of only on no grid / SOC != max). */
+    /** Status notification is pinned and always shown, not only without grid or below max SOC. */
     var alwaysShowStatus: Boolean
         get() = prefs.getBoolean(KEY_ALWAYS, false)
         set(value) = prefs.edit().putBoolean(KEY_ALWAYS, value).apply()

@@ -14,12 +14,12 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
-import androidx.compose.material3.LocalTextStyle
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -133,7 +133,7 @@ fun InfoScreen(state: UiState, vm: MainViewModel, modifier: Modifier = Modifier)
         }
         val other = energy.keys().asSequence().filter { it !in SERVICE_KEYS }.toList()
         if (other.isNotEmpty()) {
-            Section("Інше") { other.forEach { KeyValue(it, energy.opt(it).toString(), key = it) } }
+            Section("Інше") { other.forEach { KeyValue(it, energy.opt(it)?.toString().orEmpty(), key = it) } }
         }
 
         Section("Періоди розкладу") {
@@ -247,12 +247,12 @@ private fun Fields(o: JSONObject, labels: Map<String, Field>) {
         val f = labels[k]
         val raw = o.opt(k)
         val value = when {
-            f == null -> raw.toString()
+            f == null -> raw?.toString().orEmpty()
             raw is Number && f.unit.isNotEmpty() -> {
                 val v = raw.toDouble() * f.scale
                 "${if (v == v.roundToInt().toDouble()) v.roundToInt().toString() else "%.1f".format(v)} ${f.unit}"
             }
-            else -> raw.toString()
+            else -> raw?.toString().orEmpty()
         }
         KeyValue(f?.label ?: k, value, key = if (f != null) "$k = $raw" else null)
     }
