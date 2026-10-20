@@ -16,7 +16,7 @@ jobs:
       - uses: actions/checkout@v4
 
       # Each published build gets a higher versionCode, so it installs over the previous one;
-      # the offset keeps it above the locally built 1.1 (versionCode 3).
+      # the offset keeps it above the locally built versions.
       - name: Version code
         run: echo "VERSION_CODE=$((100 + GITHUB_RUN_NUMBER))" >> "$GITHUB_ENV"
 

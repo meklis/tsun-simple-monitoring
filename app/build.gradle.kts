@@ -6,9 +6,9 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
-val appVersionName = "1.1"
+val appVersionName = "1.2"
 // CI passes its run number so every published build installs over the previous one.
-val appVersionCode = System.getenv("VERSION_CODE")?.toIntOrNull() ?: 3
+val appVersionCode = System.getenv("VERSION_CODE")?.toIntOrNull() ?: 4
 
 base {
     archivesName = "tsun-monitor-$appVersionName"
