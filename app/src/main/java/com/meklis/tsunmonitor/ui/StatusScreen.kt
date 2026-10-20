@@ -27,7 +27,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import com.meklis.tsunmonitor.R
 import com.meklis.tsunmonitor.data.formatHours
@@ -53,6 +57,17 @@ fun StatusScreen(state: UiState, vm: MainViewModel, modifier: Modifier = Modifie
 
         val period = s.activePeriod
         val soc = s.soc
+        val grid = s.gridPresent
+        val chargeW = s.batteryChargeW?.takeIf { it > 0 } ?: s.acChargeW
+        // Time to full only with grid and below max SOC; time to empty only without grid.
+        val estimate = when {
+            period == null -> null
+            grid == true && soc != null && soc < period.maxSoc ->
+                formatHours(hoursToFull(soc, period.maxSoc, chargeW, inv.capacityWh, grid))?.let { "Зарядиться за " to it }
+            grid == false ->
+                formatHours(hoursToEmpty(soc, Period.MIN_SOC, s.homeW, inv.capacityWh))?.let { "Вистачить на ~ " to it }
+            else -> null
+        }
         Card(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -69,25 +84,29 @@ fun StatusScreen(state: UiState, vm: MainViewModel, modifier: Modifier = Modifie
                     progress = { ((soc ?: 0.0) / 100).toFloat() },
                     modifier = Modifier.fillMaxWidth().height(8.dp),
                 )
-                period?.let {
+                val line = estimate?.let { (prefix, time) ->
+                    buildAnnotatedString {
+                        append(prefix)
+                        withStyle(SpanStyle(fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)) { append(time) }
+                    }
+                } ?: period?.let { AnnotatedString("Заряд до ${it.maxSoc} %") }
+                line?.let {
                     Spacer(Modifier.height(8.dp))
-                    Text(
-                        "Заряд до ${it.maxSoc} %",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (estimate != null) {
+                            Icon(
+                                painterResource(if (grid == true) R.drawable.ic_battery_charging else R.drawable.ic_hourglass),
+                                null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Spacer(Modifier.width(6.dp))
+                        }
+                        Text(it, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
                 }
             }
         }
 
-        val grid = s.gridPresent
         val gridW = s.gridPowerW ?: 0.0
-        val chargeW = s.batteryChargeW?.takeIf { it > 0 } ?: s.acChargeW
-        // Time to full only with grid and below max SOC; time to empty only without grid.
-        val showToFull = grid == true && period != null && soc != null && soc < period.maxSoc
-        val showToEmpty = grid == false && period != null
-        val toFull = period?.let { hoursToFull(soc, it.maxSoc, chargeW, inv.capacityWh, grid) }
-        val toEmpty = hoursToEmpty(soc, Period.MIN_SOC, s.homeW, inv.capacityWh)
 
         Card(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
@@ -127,22 +146,6 @@ fun StatusScreen(state: UiState, vm: MainViewModel, modifier: Modifier = Modifie
                     InfoRow(
                         painterResource(R.drawable.ic_thermometer), "Температура інвертора",
                         "${"%.1f".format(t).replace('.', ',')} °C",
-                    )
-                }
-                if (showToFull) {
-                    HorizontalDivider()
-                    InfoRow(
-                        painterResource(R.drawable.ic_battery_charging),
-                        "До заряду (${period!!.maxSoc} %)",
-                        formatHours(toFull) ?: "—",
-                    )
-                }
-                if (showToEmpty) {
-                    HorizontalDivider()
-                    InfoRow(
-                        painterResource(R.drawable.ic_hourglass),
-                        "До розряду (${Period.MIN_SOC} %)",
-                        formatHours(toEmpty) ?: "—",
                     )
                 }
             }

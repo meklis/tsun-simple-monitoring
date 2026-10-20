@@ -10,6 +10,8 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # create the GitHub release on v* tags
     steps:
       - uses: actions/checkout@v4
 
@@ -35,6 +37,11 @@ jobs:
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
           if [ -z "$KEYSTORE_BASE64" ]; then
+            # A published release must install over earlier versions: never sign it with a throwaway key.
+            if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+              echo "::error::KEYSTORE_BASE64 is not set: refusing to publish a release signed with a debug key"
+              exit 1
+            fi
             echo "::warning::KEYSTORE_BASE64 is not set: the release APK is signed with a debug key"
             exit 0
           fi
@@ -55,6 +62,23 @@ jobs:
           name: tsun-monitor-apk-${{ github.run_number }}
           path: app/build/outputs/apk/**/*.apk
           if-no-files-found: error
+
+      - name: Publish release
+        if: github.ref_type == 'tag'
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          apk="app/build/outputs/apk/release/tsun-monitor-${version}-release.apk"
+          if [ ! -f "$apk" ]; then
+            echo "::error::tag ${GITHUB_REF_NAME} does not match versionName in app/build.gradle.kts ($(ls app/build/outputs/apk/release/))"
+            exit 1
+          fi
+          cp "$apk" "tsun-monitor-${version}.apk"
+
+      - uses: softprops/action-gh-release@v2
+        if: github.ref_type == 'tag'
+        with:
+          files: tsun-monitor-*.apk
+          generate_release_notes: true
 
       - uses: actions/upload-artifact@v4
         if: failure()
