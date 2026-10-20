@@ -29,10 +29,10 @@ data class Period(val register: Int, val fields: List<String>) {
         val REGISTERS = (3003..3018).toList()
 
         /**
-         * The period's min SOC does not stop the off-grid sockets (tested down to 4 % below it),
-         * so it is always written as 3 % and the battery is treated as usable down to that level.
+         * The inverter always switches the sockets off at 10 % SOC, whatever the registers say.
+         * The period's min SOC is written as the same value, and the battery counts as empty there.
          */
-        const val MIN_SOC = 3
+        const val MIN_SOC = 10
 
         fun parse(register: Int, raw: String?): Period? {
             val f = raw?.split(",") ?: return null

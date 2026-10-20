@@ -68,7 +68,7 @@ fun InverterControlsCard(state: UiState, vm: MainViewModel, editableMinSoc: Bool
                 OutlinedTextField(
                     value = minSoc, onValueChange = { minSoc = it.filter(Char::isDigit) },
                     label = { Text("Мінімальний SOC, %") },
-                    supportingText = { Text("Розетки Off-Grid його не враховують; у «Налаштування» завжди ${Period.MIN_SOC} %") },
+                    supportingText = { Text("Розетки вимикаються при ${Period.MIN_SOC} % незалежно від нього; у «Налаштування» завжди ${Period.MIN_SOC} %") },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     singleLine = true, modifier = Modifier.fillMaxWidth(),
                 )

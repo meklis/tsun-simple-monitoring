@@ -61,6 +61,7 @@ fun StatusScreen(state: UiState, vm: MainViewModel, modifier: Modifier = Modifie
         val chargeW = s.batteryChargeW?.takeIf { it > 0 } ?: s.acChargeW
         // Time to full only with grid and below max SOC; time to empty only without grid.
         val estimate = when {
+            grid == false && soc != null && soc <= Period.MIN_SOC -> "" to "Батарея розряджена"
             period == null -> null
             grid == true && soc != null && soc < period.maxSoc ->
                 formatHours(hoursToFull(soc, period.maxSoc, chargeW, inv.capacityWh, grid))?.let { "Зарядиться за " to it }

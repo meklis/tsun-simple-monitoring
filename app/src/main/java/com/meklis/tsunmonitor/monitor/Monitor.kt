@@ -20,6 +20,7 @@ import com.meklis.tsunmonitor.data.Inverter
 import com.meklis.tsunmonitor.data.InverterApi
 import com.meklis.tsunmonitor.data.InverterStore
 import com.meklis.tsunmonitor.data.Snapshot
+import com.meklis.tsunmonitor.protocol.Period
 import com.meklis.tsunmonitor.ui.MainActivity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -260,11 +261,16 @@ object Monitor {
         val (reached, next) = lowBatteryStep(soc, alerted)
         if (next != alerted) store.setLowBatteryAlerted(inv.id, next)
         if (reached == null) return
-        val grid = if (s.gridPresent == false) " Мережі немає." else ""
+        val noGrid = s.gridPresent == false
+        val empty = reached <= Period.MIN_SOC
         alert(
             context, CH_BATTERY, LOW_ID_BASE + idHash(inv), R.drawable.ic_battery,
-            "Заряд батареї ${soc.roundToInt()} % · ${inv.name}",
-            "Заряд опустився до $reached %.$grid",
+            (if (empty) "Батарея розряджена" else "Заряд батареї ${soc.roundToInt()} %") + " · ${inv.name}",
+            when {
+                empty && noGrid -> "Заряд ${soc.roundToInt()} %: інвертор вимикає розетки."
+                noGrid -> "Заряд опустився до $reached %. Мережі немає."
+                else -> "Заряд опустився до $reached %."
+            },
         )
     }
 
